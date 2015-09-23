@@ -1,0 +1,93 @@
+---
+title: "MotorTrend MPG Regression Analysis"
+author: "Wally Thornton"
+date: "September 27, 2015"
+output: pdf_document
+---
+#MotorTrend MPG Regression Analysis
+Using regression models, this analysis seeks to answer two questions: 1. Is an automatic or manual transmission better for MPG, and 2. Quantify the MPG difference between automatic and manual transmissions. As will be shown, an automatic is better for MPG, with the difference being: .
+```{r simSetup, message=FALSE, warning=FALSE, echo=FALSE}
+knitr::opts_chunk$set(fig.width=9)
+options(scipen=999)
+setwd("~/Documents/DataScience/Regression Models")
+# ensurePkg tests whether the package is installed and, if not, installs it.
+ensurePkg <- function(x) {
+    if (!require(x,character.only = TRUE)) {
+        install.packages(x,dep=TRUE, repos="http://cran.r-project.org")
+        if(!require(x,character.only = TRUE)) stop("Package not found")
+    }
+}
+ensurePkg('scales')
+ensurePkg('corrplot')
+#ensurePkg('tidyr')
+#ensurePkg('dplyr')
+ensurePkg('ggplot2')
+data("mtcars")
+```
+
+The `mtcars` dataset has `r nrow(mtcars)` cars of myriad makes and models, with a mean mpg of `r mean(mtcars$mpg)` and standard deviation of mpg as `r sd(mtcars$mpg)`, so there's quite a bit of variance in the values (a histogram of the values for mpg is in the appendix).
+
+The `mtcars` description file defines `mpg` as miles/US gallon and `am` as the transmission type, with 0 signifying automatic and 1 manual. Since we are examining the influence (or lack thereof) of the transmission type on miles per gallon, let's look at the breakdown of the two types in the data set:
+```{r echo=FALSE}
+table(mtcars$am)
+```
+So `r percent(sum(mtcars$am == 0)/length(mtcars$am))` of the cars have automatic transmissions. A density plot in the Appendix shows that there is a marked difference in mpg by transmission type, which the correlation between the two variables confirms: `r cor(mtcars$am, mtcars$mpg)`. Nevertheless, the magazine editor believes transmission type affects mpg so we run our first model with a linear regression, using `am` as the predictor and `mpg` as the outcome, resulting in:
+```{r echo=FALSE}
+fit <- lm(mpg ~ am, data = mtcars)
+fitSum <- summary(fit)
+fitResid <- resid(fit)
+fitSum$coef
+```
+$\beta_0$ (or the y intercept) is `r round(fitSum$coef[1,1],2)` while $\beta_1$ (or the slope of x) is `r round(fitSum$coef[2,1],2)` and with the p-value of the slope well below a selected $\alpha$ of 0.05, we could conclude that the transmission type does affect mpg, with the move from automatic to manual increasing mpg by 7.24. (A scatterplot with fitted regression line is shown in the appendix.) However, $R^2$ or is `r round(fitSum$adj.r.squared,2)`, which means that this model only explains 34% of the variance of the data. This is evident when we plot the residuals (shown in the appendix), and see the broad dispersion. Relatedly, RSE of this model is `r round(fitSum$sigma,2)`, which is quite high for this dataset. We have confounders to find.
+
+With multiple potentially important variables in the dataset (and with many perhaps derivatives of others, such as `qsec`), we run a correlation matrix first to narrow down our choices (in Appendix). The results show that while `am` has a very loose correlation with `mpg` (`r cor(mtcars$am,mtcars$mpg)`, other variables are much more correlated (e.g., `wt`: `r cor(mtcars$mpg, mtcars$wt)`) so we will focus on those. We also see that some variables are highly correlated to each other (and logically connected, like displacement and number of cylinders) so we eliminate those and run a multiple regression model with those variables that are potentially predictive. We also want to be parsimonious with our model so we'll first look at just `wt` as a predictor and then run the model with all predictors, followed by systematically removing those with high p-values, with an eye toward increasing $R^2$ while keeping RSE as low as possible.
+```{r echo=FALSE}
+fit2 <- lm(mpg ~ wt, data=mtcars)
+fit2Sum <- summary(fit2)
+fit2Sum$coef
+
+fit3 <- lm(mpg ~ wt + disp + hp + am, data=mtcars)
+fit3Sum <- summary(fit3)
+fit3Sum$coef
+```
+
+Weight, by itself, is a much better predictor than `am` alone, with `mpg` declining 5.3 for every With an adjusted $R^2$ of `r round(fit2Sum$adj.r.squared, 2)`, this leaves 26% of the variance unexplained, which is much better than using `am` alone, but not as good as the model with additional predictors with an $R^2$ of `r round(fit3Sum$adj.r.squared, 2)` and RSE of only `r round(fit2Sum$sigma, 2)`. But even this can be improved, since hp is a function of displacement, cylinders, gearing and other confounding factors that aren't in the dataset. Horsepower and weight appear to have the greatest influence on mileage, so our final model focuses on the interaction between these two variables:
+```{r echo=FALSE}
+fit4 <- lm(mpg ~ wt * hp, data = mtcars)
+fit4Sum <- summary(fit4)
+fit4Sum$coef
+```
+
+The adjusted $R^2$ of this last model is `r round(fit4Sum$adj.r.squared, 2)`, which is pretty good for this dataset and has a residual standard error of only `r round(fit4Sum$sigma, 2)`.
+
+#TODO: come to conclusions, ensure initial questions are explicitly answered
+
+-------------------
+#Appendix
+```{r mpg_hist}
+g <- ggplot(mtcars, aes(mtcars$mpg)) + 
+    geom_histogram(binwidth=1, fill="steelblue", color="grey") + 
+    ggtitle("Count of MPG Values of Cars") + 
+    xlab("MPG")
+g
+```
+
+```{r mpg_am_box}
+g <- ggplot(mtcars, aes(x=mpg, fill=as.factor(am))) + 
+    geom_density(alpha=.3) + 
+    ggtitle("Densities of MPG Values by Transmission Type")
+    xlab("MPG")
+g
+```
+
+```{r fit_lm}
+
+```
+
+```{r fit_resid}
+```
+
+```{r corMat, echo=FALSE}
+cor <- cor(mtcars)
+corrplot.mixed(cor, order="AOE")
+```
