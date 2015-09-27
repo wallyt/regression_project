@@ -3,9 +3,9 @@ title: "MotorTrend MPG Regression Analysis"
 author: "Wally Thornton"
 date: "September 27, 2015"
 output: pdf_document
+geometry: margin=.75in
 ---
-#MotorTrend MPG Regression Analysis
-In this project, we are asked by the editor of MotorTrend magazine to answer two questions: 1. Is an automatic or manual transmission better for mpg, and 2. Quantify the mpg difference between automatic and manual transmissions. As will be shown in this knitr document, the simple answers are manual and 7.24 mpg. But the more complex answer is, transmission type is a poor predictor of mpg, and the magazine would better serve its readers with an article about weight and horsepower predicting mpg.
+**Executive Summary:** In this project, we are asked by the editor of MotorTrend magazine to answer two questions: 1. Is an automatic or manual transmission better for mpg, and 2. Quantify the mpg difference between automatic and manual transmissions. As will be shown in this knitr document, the simple answers are manual and 7.24 mpg. But we'll see that the predictive value of transmission type is fairly low and therefore run three additional models: 1. the highest-correlating single predictor, 2. beginning with all predictors and iteratively reducing non-significant factors, and 3. our theory that horsepower and weight are the key predictors. We will show that the more complex (but more accurate) answer to the questions is that transmission type is a poor predictor of mpg. The magazine would better serve its readers with an article about more weight and horsepower leading to lower mpg values.
 ```{r simSetup, message=FALSE, warning=FALSE, echo=FALSE}
 knitr::opts_chunk$set(fig.width=9)
 options(scipen=999)
@@ -19,60 +19,65 @@ ensurePkg <- function(x) {
 }
 ensurePkg('scales')
 ensurePkg('corrplot')
-#ensurePkg('tidyr')
 ensurePkg('dplyr')
 ensurePkg('ggplot2')
 data("mtcars")
 ```
 
-The `mtcars` dataset has `r nrow(mtcars)` cars of myriad makes and models, with a mean mpg of `r mean(mtcars$mpg)` and standard deviation of mpg as `r sd(mtcars$mpg)`, so there's quite a bit of variance in the values (a histogram of the values for mpg is in the Appendix, Figure 1).
+**EDA:** The `mtcars` dataset has `r nrow(mtcars)` cars of myriad makes and models, with a mean mpg of `r round(mean(mtcars$mpg),2)` and standard deviation of mpg as `r round(sd(mtcars$mpg),2)`, so there's quite a bit of variance in the values (a histogram of the values for mpg is in the Appendix, Figure 1).
 
 The `mtcars` description file defines `mpg` as miles/US gallon and `am` as the transmission type, with 0 signifying automatic and 1 manual. Since we are examining the influence (or lack thereof) of the transmission type on miles per gallon, let's look at the breakdown of the two types in the data set:
 ```{r echo=FALSE}
 table(mtcars$am, dnn = "0=Auto, 1=Manual")
 ```
-So `r percent(sum(mtcars$am == 0)/length(mtcars$am))` of the cars have automatic transmissions. A density plot in the Appendix (Figure 2) shows that there is a noticeable difference in mpg by transmission type, which the correlation between the two variables confirms: `r cor(mtcars$am, mtcars$mpg)`. While this correlation is not strong enough to convince us, the magazine editor believes transmission type is causal, so we run our first model with a linear regression, using `am` as the predictor and `mpg` as the outcome, resulting in:
+So `r percent(sum(mtcars$am == 0)/length(mtcars$am))` of the cars have automatic transmissions. A density plot in the Appendix (Figure 2) shows that there is a noticeable difference in mpg by transmission type, which the correlation between the two variables confirms: `r round(cor(mtcars$am, mtcars$mpg),2)`. While this correlation is not strong enough to convince us, the magazine editor believes transmission type is causal, so we run our first model with a linear regression, using `am` as the predictor and `mpg` as the outcome, resulting in:
 ```{r echo=FALSE}
 fit <- lm(mpg ~ am, data = mtcars)
 fitSum <- summary(fit)
 fitResid <- resid(fit)
 fitSum$coef
 ```
-$\beta_0$ (or the y intercept) is `r round(fitSum$coef[1,1],2)` while $\beta_1$ (or the slope of x) is `r round(fitSum$coef[2,1],2)`. Since automatic transmission in this dataset is set to the value 0 in `am`, $\beta_0$ is the mean mpg for an automatic transmission and $\beta_1$ is the predicted gain in MPG for the manual transmission cars.
+**Interpretation of Coefficients:** $\beta_0$ (or the y intercept) is `r round(fitSum$coef[1,1],2)` while $\beta_1$ (or the slope of x) is `r round(fitSum$coef[2,1],2)`. Since automatic transmissions in this dataset are set to the value 0 in `am`, $\beta_0$ is the mean mpg for an automatic transmission and $\beta_1$ is the predicted gain in MPG for the manual transmission cars.
 
-With the p-value of the slope well below our pre-selected $\alpha$ of 0.05, we could conclude that the transmission type does affect mpg, with the move from automatic to manual increasing mpg by 7.24. (A scatterplot with fitted regression line is shown in Appendix, Figure 3.) However, $R^2$ is `r round(fitSum$adj.r.squared,2)`, which means that this model only explains `r percent(round(fitSum$adj.r.squared,2))` of the variance of the data. This is evident when we plot the residuals (shown in Appendix, Figure 4), and see the broad dispersion, although they are nicely distributed on both sides of the regression line. Relatedly, the standard error of this model is `r round(fitSum$sigma,2)`, which is quite high for this dataset. We have confounders to find.
+With the p-value of the slope well below our pre-selected $\alpha$ of 0.05, we could conclude that the transmission type does affect mpg, with the move from automatic to manual adding `r round(fitSum$coef[2,1],2)` miles per gallon, all else held constant. (A scatterplot with fitted regression line is shown in the Appendix, Figure 3.) However, $R^2$ is `r round(fitSum$adj.r.squared,2)`, which means that this model only explains `r percent(round(fitSum$adj.r.squared,2))` of the variance of the data, with the remainder due to other variables. Relatedly, the standard error of this model is `r round(fitSum$sigma,2)`, which is quite high for this dataset. We have confounders to find.
 
-With multiple potentially important variables in the dataset (and with many perhaps derivatives of others, such as `qsec`), we run a correlation matrix first to narrow down our choices (in Appendix, Figure 5). The results show that while `am` has a very loose correlation with `mpg` (`r round(cor(mtcars$am,mtcars$mpg),2)`), other variables are much more correlated (e.g., `wt`: `r round(cor(mtcars$mpg, mtcars$wt),2)`). We also see that some predictors exhibit high colinearity (and are logically connected, like displacement and number of cylinders).
+With multiple potentially important variables in the dataset (and with many perhaps derivatives of others, such as `qsec`), we run a correlation matrix first to narrow down our choices (in Appendix, Figure 4). The results show that while `am` has a very loose correlation with `mpg` (`r round(cor(mtcars$am,mtcars$mpg),2)`), other variables are much more correlated (e.g., `wt`: `r round(cor(mtcars$mpg, mtcars$wt),2)`). We also see that some predictors exhibit high colinearity (and are logically connected, like displacement and number of cylinders).
 
-We want to be parsimonious with our model while returning the best-performing model, so we'll pursue three paths. First, a couple single-predictor models using the highest-correlating variables. Second, running a model with all predictors and iteratively removing the variables with highest p-values. And third, our hypothesis that `wt` and `hp`  so we'll first look at just `wt` as a predictor and then run the model with all predictors, followed by systematically removing those with high p-values, with an eye toward increasing $R^2$ while keeping RSE as low as possible.
+**Model Strategy:** We want to be parsimonious with our model while returning the best-performing model, so we'll pursue three paths. First, a couple single-predictor models using variables with the highest correlation to `mpg`. Second, running a model with all predictors and iteratively removing the variables with highest p-values. And third, our hypothesis that `wt` and `hp` are the best predictors (explained below). The winning model will be that with the highest adjusted $R^2$, balanced with a low standard error.
 
-#TODO: ADD SOME LOGIC AS TO WHY I'M CHOOSING CERTAIN VARIABLES
+The higheset correlation to `mpg` is `wt`, followed by `cyl`.
 ```{r echo=FALSE}
 fit2 <- lm(mpg ~ wt, data=mtcars)
 fit2Sum <- summary(fit2)
 fit2Sum$coef
 
-fit3 <- lm(mpg ~ disp, data=mtcars)
+fit3 <- lm(mpg ~ cyl, data=mtcars)
 fit3Sum <- summary(fit3)
-fit3Sum$Coef
+fit3Sum$coef
+```
+Weight, by itself, is a much better predictor than `am`, with `mpg` declining 5.3 for every 1,000 pounds increase in weight. With an adjusted $R^2$ of `r round(fit2Sum$adj.r.squared, 3)`, this leaves `r percent(1-fit2Sum$adj.r.squared)` of the variance unexplained, which is much better than using `am` alone, and the RSE has dropped dramatically, to `r round(fit2Sum$sigma, 2)`. (Not surprisingly, results for `cyl` are slightly worse than for `wt`). 
 
-fit4 <- lm(mpg ~ wt + disp + hp + am, data=mtcars)
+When we **plot the residuals for `wt` as the predictor (shown in Appendix, Figure 5)**, we see exactly what we want to see: broad dispersion, balanced distributed on both sides of the regression line and no discernible patterns. Although we'd like to see the residuals closer to the regression line (meaning a better fit), this plot shows our best fit line for `wt` is about in the middle of the data points, there is little to no bias in our data and there is no sign of heteroscedasticity. We conclude that a linear model is appropriate for this data.
+
+Our second approach is to run a linear regression with all the variables and then stepwise remove the least significant until we're left with only p-values < 0.05:
+```{r echo=F}
+fit4 <- lm(mpg ~ wt + hp, data=mtcars)
 fit4Sum <- summary(fit4)
 fit4Sum$coef
 ```
+This strategy leaves us with `wt` and `hp`, with much improved values of `r round(fit4Sum$adj.r.squared, 2)` for $R^2$ and `r round(fit4Sum$sigma, 2)` for standard error.
 
-Weight, by itself, is a much better predictor than `am` alone, with `mpg` declining 5.3 for every With an adjusted $R^2$ of `r round(fit2Sum$adj.r.squared, 2)`, this leaves 26% of the variance unexplained, which is much better than using `am` alone, but not as good as the model with additional predictors with an $R^2$ of `r round(fit3Sum$adj.r.squared, 2)` and RSE of only `r round(fit2Sum$sigma, 2)`. But even this can be improved, since hp is a function of displacement, cylinders, gearing and other confounding factors that aren't in the dataset. Horsepower and weight appear to have the greatest influence on mileage, so our final model focuses on the interaction between these two variables:
+And this leads to our third and final model. At its most fundamental, driving a car is the acceleration and deceleration of a mass using an engine of some sort as the primary means of propulsion. Miles per gallon is one measure of the efficiency of these actions, and the mass and propulsive aspects of a vehicle are best represented in this dataset by weight and horsepower, respectively. (Torque is an even more important factor in acceleration, but the data do not include these values.) Horsepower (`hp`) and weight (`wt`) were also the survivors of our last model's defactorization, and our theory is that the interaction between these two will do an even better job of predicting mpg:
 ```{r echo=FALSE}
-fit4 <- lm(mpg ~ wt * hp, data = mtcars)
-fit4Sum <- summary(fit4)
-fit4Sum$coef
+fit5 <- lm(mpg ~ wt * hp, data = mtcars)
+fit5Sum <- summary(fit5)
+fit5Sum$coef
 ```
 
-The adjusted $R^2$ of this last model is `r round(fit4Sum$adj.r.squared, 2)`, which is pretty good for this dataset and has a residual standard error of only `r round(fit4Sum$sigma, 2)`.
-
-#TODO: come to conclusions, ensure initial questions are explicitly answered
+**Conclusion:** The adjusted $R^2$ of this last model is `r round(fit5Sum$adj.r.squared, 2)`, which is pretty good for this dataset and has a residual standard error of only `r round(fit5Sum$sigma, 2)`. These values are far superior to the other models above in predicting mpg, with only `r percent(1-round(fit5Sum$adj.r.squared, 2))` of the variance left unexplained (Figure 6 in the Appendix shows that the linear model is appropriate, the data is fairly normal and there is no sign of heteroscedasticity). Therefore, we can tell our editor that weight, horsepower and the interaction between the two best predict miles per gallon. But we will caution him that there are still fairly significant factors absent from our model, **amounting to `r percent(1-round(fit5Sum$adj.r.squared, 2))` of the variance of the residuals, which is the uncertainty in our model**, and that further work is necessary to find these confounders.
 
 -------------------
+
 #Appendix
 ```{r mpg_hist, echo=F, message=F}
 g <- ggplot(mtcars, aes(mtcars$mpg)) + 
@@ -82,6 +87,7 @@ g <- ggplot(mtcars, aes(mtcars$mpg)) +
 g
 ```
 
+
 ```{r mpg_am_box, echo=F, message=F}
 g <- ggplot(mtcars, aes(x=mpg, fill=as.factor(am))) + 
     geom_density(alpha=.3) + 
@@ -89,6 +95,7 @@ g <- ggplot(mtcars, aes(x=mpg, fill=as.factor(am))) +
     xlab("MPG")
 g
 ```
+
 
 ```{r fit_lm, echo=F, message=F}
 g = ggplot(mtcars, aes(x = am, y = mpg)) + 
@@ -101,19 +108,28 @@ g = ggplot(mtcars, aes(x = am, y = mpg)) +
 g
 ```
 
+
+##Fig 4: Correlation Matrix of All Factors
+```{r corMat, echo=F, message=F, fig.width=8}
+cor <- cor(mtcars)
+corrplot.mixed(cor, order="AOE")
+```
+
+
 ```{r fit_resid, echo=F, message=F}
-g = ggplot(data.frame(x = mtcars$am, y = resid(lm(mtcars$mpg ~ mtcars$am))), 
+g = ggplot(data.frame(x = mtcars$wt, y = resid(lm(mtcars$mpg ~ mtcars$wt))), 
            aes(x = x, y = y)) + 
     geom_hline(yintercept = 0, size = 2) + 
     geom_point(size = 7, color = "grey") + 
     geom_point(size = 5, color = "steelblue", alpha = 0.7) + 
-    ggtitle("Fig 4: Plot of mpg~am Residuals") + 
+    ggtitle("Fig 5: Plot of mpg~wt Residuals") + 
     xlab("X") + ylab("Residual")
 g
 ```
 
-##Fig 5: Correlation Matrix of All Factors
-```{r corMat, echo=F, message=F}
-cor <- cor(mtcars)
-corrplot.mixed(cor, order="AOE")
+
+##Fig 6: Plots Diagnosing Goodness of Final Model
+```{r plot, echo=F, message=F, fig.width=7, fig.height=5}
+par(mfrow = c(2,2), mar=c(2,2,2,2))
+plot(fit5)
 ```
